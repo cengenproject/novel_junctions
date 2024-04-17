@@ -2,8 +2,8 @@
 #SBATCH --partition=week
 #SBATCH --job-name=filt_sj
 #SBATCH -c 1
-#SBATCH --mem=160G
-#SBATCH --time=3-23:10:00
+#SBATCH --mem=10G
+#SBATCH --time=1-15:10:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=alexis.weinreb@yale.edu
 
