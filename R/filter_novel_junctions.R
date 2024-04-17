@@ -170,7 +170,7 @@ all_files <- dplyr::tibble(path = list.files(input_dir, full.names = TRUE),
 
 message("save files")
 
-purrr::walk2(all_files$sample_id, all_files$sj_file_combined,
+purrr::walk2(all_files$out_path, all_files$sj_file_combined,
              ~ readr::write_tsv(.y, .x))
   
 
