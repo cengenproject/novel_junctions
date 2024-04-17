@@ -4,6 +4,8 @@ library(GenomicFeatures)
 library(wbData)
 
 
+message("Starting", date())
+
 
 input_dir <- "/gpfs/gibbs/pi/hammarlund/CeNGEN/bulk/bulk_alignments/bsn12_junctions"
 output_dir <- "data/intermediates/filtered_by_sample"
@@ -28,12 +30,6 @@ rrna_gr <- GenomicFeatures::genes(txdb, filter = list(gene_id = gtable$gene_id[g
 
 # functions ----
 
-get_matching_genes <- function(i){
-  matching_rows <- from(which_spl_genes_matching) == i
-  matching_gene_rows <- to(which_spl_genes_matching)[matching_rows]
-  matching_gene_ids <- spliceable_genes_gr$gene_id[matching_gene_rows]
-  matching_gene_ids
-}
 
 filter_one_sample <- function(sample_sj){
   
@@ -116,6 +112,12 @@ filter_one_sample <- function(sample_sj){
                                            ignore.strand = TRUE)
   
   
+  get_matching_genes <- function(i){
+    matching_rows <- from(which_spl_genes_matching) == i
+    matching_gene_rows <- to(which_spl_genes_matching)[matching_rows]
+    matching_gene_ids <- spliceable_genes_gr$gene_id[matching_gene_rows]
+    matching_gene_ids
+  }
   
   
   sjs_to_keep <- filtered_candidate_sjs |>
@@ -154,6 +156,7 @@ combine_sj <- function(sj_file, fn){
 
 
 
+message("read and process samples")
 
 all_files <- dplyr::tibble(path = list.files(input_dir, full.names = TRUE),
                     replicate = stringr::str_split_fixed(basename(path), "\\.", 2)[,1],
@@ -162,8 +165,10 @@ all_files <- dplyr::tibble(path = list.files(input_dir, full.names = TRUE),
   dplyr::mutate(sj_file = lapply(path, read_sj_file)) |>
   dplyr::summarize(sj_file_combined = list(combine_sj(sj_file, rowSums)),
                    .by = sample_id) |>
-  dplyr::mutate(sj_file_combined = lapply(sj_file_combined, filter_one_sample)) |>
+  dplyr::mutate(sj_file_combined = purrr::map(sj_file_combined, filter_one_sample, .progress = TRUE)) |>
   dplyr::mutate(out_path = paste0(output_dir, "/", sample_id, ".tsv"))
+
+message("save files")
 
 purrr::walk2(all_files$sample_id, all_files$sj_file_combined,
              ~ readr::write_tsv(.y, .x))
@@ -171,5 +176,5 @@ purrr::walk2(all_files$sample_id, all_files$sj_file_combined,
 
 
 
-
+message( "done")
 
