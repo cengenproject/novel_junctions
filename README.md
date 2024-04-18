@@ -2,12 +2,12 @@
 # Principle
 
 
-STAR junction file gives a junction count and wether it's an annotated or novel junction. We have one file per technical replicate (so 1 or 2 files per sample). 
+STAR junction file gives a junction count and whether it's an annotated or novel junction. We have one file per technical replicate (so 1 or 2 files per sample)., we group them if necessary to have 1 file per biological replicate.
 
 
-In `filter_novel_junctions.R`, read all the STAR junction files, for each one filter the novel junctions and save them.
+In `filter_novel_junctions.R`, read each the STAR junction files, for each biological replicate filter the novel junctions and save them.
 
-Then in `detect_consistent_junctions.R`, load all the junctions filtered from individual samples, and filter them based on appearing in enough samples.
+Then in `detect_consistent_junctions.R`, load all the junctions filtered from individual samples, and filter them based on appearing in enough samples. Export resulting list.
 
 
 ## Details
