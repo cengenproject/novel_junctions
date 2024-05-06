@@ -98,13 +98,42 @@ candidate_sjs <- candidate_sjs |>
                                     i2s(gtable,
                                         warn_missing = TRUE) |>
                                     paste(collapse = ", ")),
-         .after = "coordinates")
+         .after = "coordinates") |>
+  arrange(chr, start, end)
+
+# # number of neighbor genes per junction
+# candidate_sjs |>
+#   pull(neighbor_genes) |>
+#   str_split(",") |>
+#   sapply(length) |>
+#   table()
+# 
+# # number of genes that can appear as neighbors
+# candidate_sjs |>
+#   pull(neighbor_genes) |>
+#   str_split(",") |>
+#   unlist() |>
+#   unique() |>
+#   length()
+# 
+# # keeping up to 1 gene per junction
+# nb_genes <- replicate(1000,{
+#   candidate_sjs |>
+#     pull(neighbor_genes) |>
+#     str_split(",") |>
+#     sapply(\(x) sample(x, 1)) |>
+#     unique() |>
+#     length()
+# })
+# hist(nb_genes, breaks = 50)
+
+
 
 
 # Export results ----
 
-arrange(candidate_sjs, chr, start, end) |>
-  writexl::write_xlsx("data/export/240418_novel_junctions.xlsx")
+# arrange(candidate_sjs, chr, start, end) |>
+#   writexl::write_xlsx("data/export/240418_novel_junctions.xlsx")
 
 
 
