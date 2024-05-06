@@ -53,14 +53,22 @@ per_sample <- map2_dfr(all_files$sj_file_combined, all_files$sample_id,
 per_sample |>
   select(chr,start,end,strand,motif,annotated) |>
   distinct()
-
+#> # A tibble: 1,140,108 × 4
+#>    chr   start   end strand
+#>    <chr> <dbl> <dbl>  <dbl>
+#>  1 I      2713  3202      2
+#>  2 I      4359  5194      2
+#>  3 I      5297  6036      2
+# >>same with or without $motif and $annotated
 
 per_sample |>
   select(chr,start,end,strand,motif,annotated) |>
   distinct() |>
   pull(annotated) |>
   table()
-
+#>       0       1
+#> 1026619  113489
+#> 
 
 
 
