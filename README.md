@@ -31,3 +31,7 @@ For the second filtering, we keep splice junctions that:
 These thresholds were chosen by examining candidate splice junctions in the genome browser.
 
 
+## Estimate number of genes with novel junctions
+
+In `R/nb_genes_with_novel_sj.qmd` (and the resulting html file), we estimate bounds on the number of genes that can contain novel junctions.
+
