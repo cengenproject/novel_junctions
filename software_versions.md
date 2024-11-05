@@ -61,3 +61,41 @@ loaded via a namespace (and not attached):
 [59] readr_2.1.5                 compiler_4.4.1
 [61] RCurl_1.98-1.16
 ```
+
+
+For the estimate of number of genes with novel junctions, see html file. R package `lpSolve` version 5.6.20, is an interface to `Lp_solve` c. 5.5. Full sessionInfo:
+
+```
+R version 4.4.0 (2024-04-24 ucrt)
+Platform: x86_64-w64-mingw32/x64
+Running under: Windows 11 x64 (build 22631)
+
+Matrix products: default
+
+
+locale:
+[1] LC_COLLATE=English_United States.utf8 
+[2] LC_CTYPE=English_United States.utf8   
+[3] LC_MONETARY=English_United States.utf8
+[4] LC_NUMERIC=C                          
+[5] LC_TIME=English_United States.utf8    
+
+time zone: America/New_York
+tzcode source: internal
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+loaded via a namespace (and not attached):
+ [1] vctrs_0.6.5       cli_3.6.2         knitr_1.46        rlang_1.1.3      
+ [5] xfun_0.48         generics_0.1.3    jsonlite_1.8.8    glue_1.7.0       
+ [9] htmltools_0.5.8.1 readxl_1.4.3      fansi_1.0.6       lpSolve_5.6.20   
+[13] rmarkdown_2.26    cellranger_1.1.0  evaluate_0.23     tibble_3.2.1     
+[17] fastmap_1.1.1     yaml_2.3.8        lifecycle_1.0.4   compiler_4.4.0   
+[21] printMat_0.1.0    dplyr_1.1.4       htmlwidgets_1.6.4 pkgconfig_2.0.3  
+[25] rstudioapi_0.16.0 digest_0.6.35     R6_2.5.1          tidyselect_1.2.1 
+[29] utf8_1.2.4        pillar_1.9.0      magrittr_2.0.3    tools_4.4.0 
+```
+
+
+

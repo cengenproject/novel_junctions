@@ -1,0 +1,788 @@
+---
+title: "Number of genes with novel SJ"
+format: html
+editor: visual
+---
+
+# Toy example
+
+We start with a simple toy example, see "Real data" below.
+
+## Setup
+
+We have a set of $n$ elements $e_1$, $e_2$,... $e_n$ and a set of $N$ bins $b_1$, $b_2$, ...$b_N$. Each element is in a bin, each bin can contain 0, 1, or more elements. The element locations are not independent, and do not follow a standard canonical distribution (e.g. Poisson). The bins also have some spatial structure.
+
+We don't know which element is in which bin, we want to estimate the number of non-empty bins.
+
+For each element, we have an "approximate location": a set of bins including the correct one. For example, we might know that $e_1$ is either in $b_5$ or $b_6$. More generally, for each element $e_i$, there is a set $S^i$ such that $e_i \in \{b_{S^i_1}, b_{S^i_2}, ...\}$.
+
+## Resampling approach
+
+We can take a naive resampling approach: for each element, we randomly select one of the possible containers, then estimate the number of non-empty containers. If we do that several times, it does look like it converges to a clear value.
+
+Here is an example with dummy data in R:
+```{r}
+
+# some example data
+bins <- paste0("b",1:10)
+
+elements <- list(
+  e1 = c("b5", "b6"),
+  e2 = c("b4","b5","b6"),
+  e3 = "b10",
+  e4 = c("b7","b8"),
+  e5 = "b5",
+  e6 = c("b5", "b6")
+)
+
+# naive resampling approach
+set.seed(123)
+
+resample <- function(){
+  sapply(elements,
+         \(x) sample(x, 1)) |>
+    unique() |>
+    length()
+}
+
+results_resampled <- replicate(1000, resample())
+
+table(results_resampled)
+```
+
+In that example, it looks like the number of non-empty bins may be $4$.
+
+## Bounds
+
+Can we find bounds (min/max number of non-empty bins)?
+
+### Rough bounds
+
+Obviously, we always have an upper bound of $n$ non-empty sets (when each element is in a different bin), and a lower bound is $1$ (all elements in the same bin).
+
+Given $S^i$, we can find more restrictive bounds. I can define a lower bound as the number of bins that are alone in a set (thus have to be selected for that element). In my example, that is the case of $S^3 = b_{10}$ and $S^5 = b_5$, giving a lower bound of $2$. Conversely, an upper bound is the total number of bins that appear in any set, here $6$ (more correctly, the minimum between this number and $n$).
+
+Looking closer, there are even more restrictive bounds: in my example above, $b_5$ and $b_{10}$ are sure to be non-empty, as well as either $b_7$ or $b_8$, giving a lower bound of $3$. We could have the combination $(b_6,b_4,b_{10},b_7,b_5,b_6)$, giving us an upper bound of $n-1 = 5$ but no combination can give us $6$. This is a manual reasoning, we can formalize it with integer programming.
+
+### Bounds by integer programming
+
+We use the data from the toy example.
+```{r}
+elements <- list(
+  e1 = c("b5", "b6"),
+  e2 = c("b4","b5","b6"),
+  e3 = "b10",
+  e4 = c("b7","b8"),
+  e5 = "b5",
+  e6 = c("b5", "b6")
+)
+```
+
+Defining our coefficients as $x_j$ for $j \in [1,11]$, with $j$ value for each bin-element combination, with $x_j = 1$ iff the element is *not* in the bin, and $x_j = 0$ iff the element is in the bin (note, the opposite of the more intuitive version).
+
+The objective function is the number of empty bins, i.e. the product of the corresponding $x_j$ for all $j$ corresponding to that bin (since a bin is non-empty if at least one of its $x_j$ is non-empty, i.e. at least of of the $x_{j_0} = 0$. In our example,
+
+```{r, eval=FALSE}
+e1 = c(     "b5", "b6"),
+#             1     2
+e2 = c("b4","b5", "b6"),
+#        3    4     5
+e3 =                           "b10",
+#                                 6
+e4 = c(               "b7","b8"),
+#                       7    8
+e5 =        "b5",
+#             9
+e6 = c(     "b5", "b6")
+#            10    11
+```
+
+$$
+C = x_3 + x_1x_4x_9x_{10} + x_2x_5x_{11} + x_7 + x_8 + x_6
+$$
+
+The constraints are that each element should be in exactly one bin, i.e. $\forall i, \sum_j (1-S^i_j) = 1$:
+
+$$
+\begin{aligned}
+ 1-x_1 + 1-x_2 = 1 ~~~ &\iff ~~~ x_1 + x_2 = 1\\
+1-x_3 + 1-x_4 + 1-x_5 = 1 ~~~ &\iff ~~~ x_3+x_4+x_5 = 2\\
+1-x_6 = 1 ~~~ &\iff ~~~ x_6=0\\
+1-x_7 + 1-x_8 = 1 ~~~ &\iff ~~~ x_7+x_8 = 1\\
+1-x_9 = 1 ~~~ &\iff ~~~ x_9=0\\
+1-x_{10} + 1-x_{11} = 1 ~~~ &\iff ~~~ x_{10} + x_{11} = 1
+\end{aligned}
+$$
+
+
+We have one more problem: the objective function contains products. We can use the trick described [here](https://or.stackexchange.com/a/38) and rewrite the product with conditions. Define $y_1=x_1x_4x_9x_{10}$ and $y_2=x_2x_5x_{11}$, following the conditions:
+
+$$
+\begin{aligned}
+&y_1 \leq x_i \text{,  } \forall i \in \{1,4,9,10\}\\
+&y_1 \geq \sum_{i \in \{1,4,9,10\}} x_i - (n-1)
+\end{aligned}
+$$
+
+Thus, the resulting model (still manually constructed):
+
+```{r}
+# variables: x1..x11, y1, y2
+# Maximize x3 + x6 + x7 + x8 + y1 + y2
+#
+#             x1 2  3 4 5  6 7  8 9 10 x11  y1 y2
+objective <- c(0,0, 1,0,0, 1,1, 1,0, 0,  0,  1, 1)
+
+
+# x_1 + x_2 = 1
+# x_3+x_4+x_5 = 2
+# x_6=0
+# x_7+x_8 = 1
+# x_9=0
+# x_{10} + x_{11} = 1
+#
+# y_1 - x_i < 0             for i \in {1,4,9,10}
+# y_1 - \sum x_i > 1- n     for i \in {1,4,9,10}
+# y_2 - x_i  < 0            for i \in {2,5,11}
+# y_2 - \sum x_i > 1 - n    for i \in {2,5,11}
+constraints <- matrix(
+  #x1  2  3  4  5  6  7  8  9 10 x11  y1 y2
+  c(1, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0, 0,   # x_1 + x_2 = 1
+    0, 0, 1, 1, 1, 0, 0, 0, 0, 0,  0,  0, 0,   # x_3 + x_4 + x_5 = 2
+    0, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0,  0, 0,   # x_6 = 0
+    0, 0, 0, 0, 0, 0, 1, 1, 0, 0,  0,  0, 0,   # x_7 + x_8 = 1
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0,  0, 0,   # x_9 = 0
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  1,  0, 0,   # x_{10} + x_{11} = 1
+   -1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0,  1, 0,   # y_1 - x_i < 0 --> 1
+    0, 0, 0,-1, 0, 0, 0, 0, 0, 0,  0,  1, 0,   # --> 4
+    0, 0, 0, 0, 0, 0, 0, 0,-1, 0,  0,  1, 0,   # --> 9
+    0, 0, 0, 0, 0, 0, 0, 0, 0,-1,  0,  1, 0,   # --> 10
+   -1, 0, 0,-1, 0, 0, 0, 0,-1,-1,  0,  1, 0,   # y_1 - \sum x_i > 1- n
+    0,-1, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0, 1,   # y_2 + x_i  < 1  --> 2
+    0, 0, 0, 0,-1, 0, 0, 0, 0, 0,  0,  0, 1,   # --> 5
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1,  0, 1,   # --> 11
+    0,-1, 0, 0,-1, 0, 0, 0, 0, 0, -1,  0, 1),  # y_2 - \sum x_i > 1 - n
+  ncol = 13,
+  byrow = TRUE
+)
+
+constraints_dirs <- c(
+  rep("==", 6),
+  rep("<=", 4),
+  rep(">=", 1),
+  rep("<=", 3),
+  rep(">=", 1)
+)
+
+contraints_rhs <-c(
+  1,2,0,1,0,1,
+  rep(0,4),
+  1-4,
+  rep(0,3),
+  1-3
+)
+
+
+res_min <- lpSolve::lp(direction = "min",
+   objective.in = objective,
+   const.mat = constraints,
+   const.dir = constraints_dirs,
+   const.rhs = contraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+res_max <- lpSolve::lp(direction = "max",
+   objective.in = objective,
+   const.mat = constraints,
+   const.dir = constraints_dirs,
+   const.rhs = contraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+```
+
+Thus, by maximizing the number of empty bins, we get `r res_max$objval` empty bins, i.e. `r 6- res_max$objval` non-empty bins, and by minimizing, we have `r res_min$objval` empty bins, i.e. `r 6- res_min$objval` non-empty bins. Compare to $[3,5]$ that we determined manually.
+
+
+
+
+
+
+
+### Bounds programmatically
+
+Now we'd like to write the integer programming problem in a purely programmatic way.
+
+Does it change anything if we define a separate $y$ for each bin?
+
+```{r}
+# variables: x1..x11, y4, y5, ...y10
+# where y4=x3,  y5=x_1x_4x_9x_{10},  y6=x_2x_5x_{11},  y7=x7,  y8=x8,  y10=x6
+# Maximize y4+y5+y6+y7+y8+y10
+#
+#             x1 2  3 4 5  6 7  8 9 10 x11  y4 y5 y6 y7 y8 y10
+objective <- c(0,0, 0,0,0, 0,0, 0,0, 0,  0,  1, 1, 1, 1, 1,  1)
+
+
+# x_1 + x_2 = 1
+# x_3+x_4+x_5 = 2
+# x_6=0
+# x_7+x_8 = 1
+# x_9=0
+# x_{10} + x_{11} = 1
+#
+# y_1 - x_i < 0             for i \in {1,4,9,10}
+# y_1 - \sum x_i > 1- n     for i \in {1,4,9,10}
+# y_2 - x_i  < 0            for i \in {2,5,11}
+# y_2 - \sum x_i > 1 - n    for i \in {2,5,11}
+constraints <- matrix(
+  #x1  2  3  4  5  6  7  8  9 10 x11  y4 y5 y6 y7 y8 y10
+  c(1, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0, 0, 0, 0, 0,  0,   # x_1 + x_2 = 1
+    0, 0, 1, 1, 1, 0, 0, 0, 0, 0,  0,  0, 0, 0, 0, 0,  0,   # x_3 + x_4 + x_5 = 2
+    0, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0,  0, 0, 0, 0, 0,  0,   # x_6 = 0
+    0, 0, 0, 0, 0, 0, 1, 1, 0, 0,  0,  0, 0, 0, 0, 0,  0,   # x_7 + x_8 = 1
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0,  0, 0, 0, 0, 0,  0,   # x_9 = 0
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  1,  0, 0, 0, 0, 0,  0,   # x_{10} + x_{11} = 1
+    0, 0,-1, 0, 0, 0, 0, 0, 0, 0,  0,  1, 0, 0, 0, 0,  0,   # y_4 - x_3 < 0
+    0, 0,-1, 0, 0, 0, 0, 0, 0, 0,  0,  1, 0, 0, 0, 0,  0,   # y_4 - \sum x_i > 0
+   -1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0, 1, 0, 0, 0,  0,   # y_5 - x_i < 0 --> 1
+    0, 0, 0,-1, 0, 0, 0, 0, 0, 0,  0,  0, 1, 0, 0, 0,  0,   # --> 4
+    0, 0, 0, 0, 0, 0, 0, 0,-1, 0,  0,  0, 1, 0, 0, 0,  0,   # --> 9
+    0, 0, 0, 0, 0, 0, 0, 0, 0,-1,  0,  0, 1, 0, 0, 0,  0,   # --> 10
+   -1, 0, 0,-1, 0, 0, 0, 0,-1,-1,  0,  0, 1, 0, 0, 0,  0,   # y_5 - \sum x_i > 1- 4
+    0,-1, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0, 0, 1, 0, 0,  0,   # y_6 + x_i  < 0  --> 2
+    0, 0, 0, 0,-1, 0, 0, 0, 0, 0,  0,  0, 0, 1, 0, 0,  0,   # --> 5
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1,  0, 0, 1, 0, 0,  0,   # --> 11
+    0,-1, 0, 0,-1, 0, 0, 0, 0, 0, -1,  0, 0, 1, 0, 0,  0,   # y_6 - \sum x_i > 1 - 3
+    0, 0, 0, 0, 0, 0,-1, 0, 0, 0,  0,  0, 0, 0, 1, 0,  0,   # y_7 - x_7 < 0
+    0, 0, 0, 0, 0, 0,-1, 0, 0, 0,  0,  0, 0, 0, 1, 0,  0,   # y_7 - \sum x_i > 0
+    0, 0, 0, 0, 0, 0, 0,-1, 0, 0,  0,  0, 0, 0, 0, 1,  0,   # y_8 - x_8 < 0
+    0, 0, 0, 0, 0, 0, 0,-1, 0, 0,  0,  0, 0, 0, 0, 1,  0,   # y_8 - \sum x_i > 0
+    0, 0, 0, 0, 0,-1, 0, 0, 0, 0,  0,  0, 0, 0, 0, 0,  1,   # y_10 - x_6 < 0
+    0, 0, 0, 0, 0,-1, 0, 0, 0, 0,  0,  0, 0, 0, 0, 0,  1),  # y_10 - \sum x_i > 0
+  ncol = 11+6,
+  byrow = TRUE
+)
+
+constraints_dirs <- c(
+  rep("==", 6),
+  "<=",">=",    #y4
+  rep("<=", 4), #y5
+  rep(">=", 1),
+  rep("<=", 3), #y6
+  rep(">=", 1),
+  "<=",">=",    #y7
+  "<=",">=",    #y8
+  "<=",">="     #y10
+  
+)
+
+contraints_rhs <-c(
+  1,2,0,1,0,1,
+  0,0,      #y4
+  rep(0,4), #y5
+  1-4,
+  rep(0,3), #y6
+  1-3,
+  0,0,      #y7
+  0,0,      #y8
+  0,0       #y10
+)
+
+
+res_min2 <- lpSolve::lp(direction = "min",
+   objective.in = objective,
+   const.mat = constraints,
+   const.dir = constraints_dirs,
+   const.rhs = contraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+res_max2 <- lpSolve::lp(direction = "max",
+   objective.in = objective,
+   const.mat = constraints,
+   const.dir = constraints_dirs,
+   const.rhs = contraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+
+all.equal(res_min$objval,res_min2$objval)
+all.equal(res_min$solution[1:11],res_min2$solution[1:11])
+all.equal(res_max$objval,res_max2$objval)
+all.equal(res_max$solution[1:11],res_max2$solution[1:11])
+```
+
+No, these formulations are equivalent. It makes it easier to handle the problem computationally. Given the sets, we first need to determine how many variables are needed, then create the constraints.
+
+
+```{r}
+nb_xi <- elements |> unlist() |> length()
+nb_yi <- elements |> unlist() |> unique() |> length()
+
+yi_names <- elements |> unlist() |> unique()
+xi_names <- character()
+for(i in seq_along(elements)){
+  xi_names <- append(xi_names,
+                     paste(names(elements)[[i]],
+                           elements[[i]],
+                           sep="-"))
+}
+
+
+stopifnot(length(xi_names) == nb_xi)
+
+stopifnot(length(yi_names) == nb_yi)
+
+
+objective <- c(
+  rep(0, nb_xi),
+  rep(1, nb_yi)
+)
+
+
+
+
+
+
+
+#~ simple constraints: each element once in a bin
+
+empty_row <- rep(0L, nb_yi) |> setNames(yi_names)
+elements_mat <- vapply(elements,
+                       \(S_el){
+                         row <- empty_row
+                         row[S_el] <- 1L
+                         row
+                       },
+                       integer(nb_yi))
+
+constrains_mat_single <- matrix(0L,
+                                nrow = length(elements),
+                                ncol = nb_xi + nb_yi,
+                                dimnames = list(NULL,
+                                                c(xi_names, yi_names)))
+
+for(i in seq_along(elements)){
+  cur_el_name <- names(elements)[[i]]
+  
+  cur_el_bins <- elements_mat[,cur_el_name]
+  cur_el_bins <- cur_el_bins[cur_el_bins > 0]
+  
+  names_to_fill <- paste(cur_el_name, names(cur_el_bins), sep = "-")
+  
+  names(cur_el_bins) <- names_to_fill
+  
+  constrains_mat_single[i,names_to_fill] <- cur_el_bins
+}
+
+constraints_dirs <- rep("=", length(elements))
+
+constraints_rhs <- rowSums(constrains_mat_single) - 1L
+
+
+
+
+#~ constraints for each yi
+# for i fixed:
+#    y_i - x_j < 0 for each j
+#    y_i - sum(x_j) > n-1
+
+xi_by_bin <- lapply(yi_names,
+       \(cur_bin){
+         elements_with_bin_pos <- sapply(elements, \(set) cur_bin %in% set)
+         elements_with_bin <- names(elements)[elements_with_bin_pos]
+         paste(elements_with_bin, cur_bin, sep = "-")
+       } ) |>
+  setNames(yi_names)
+
+
+constraints_list <- list()
+
+empty_row <- rep(0, nb_xi + nb_yi) |>
+  setNames(c(xi_names, yi_names))
+
+for(i in seq_len(nb_yi)){
+  cur_bin <- yi_names[[i]]
+  
+  xjs <- xi_by_bin[[cur_bin]]
+  
+  ###    y_i - x_j < 0 for each j
+  cons_bins_foreach <- lapply(xjs,
+         \(xj){
+           new_row <- empty_row
+           new_row[xj] <- -1
+           new_row[cur_bin] <- 1
+           new_row
+         })
+  
+  constraints_dirs <- append(constraints_dirs,
+                             rep("<", length(xjs)))
+  constraints_rhs <- append(constraints_rhs,
+                            rep(0, length(xjs)))
+  
+  
+  ###    y_i - sum(x_j) > n-1
+  cons_bins_sum <- empty_row
+  cons_bins_sum[cur_bin] <- 1
+  cons_bins_sum[xjs] <- -1
+  
+  
+  constraints_list <- constraints_list |>
+    append(cons_bins_foreach) |>
+    append(list(cons_bins_sum))
+  
+  
+  constraints_dirs <- append(constraints_dirs, ">")
+  
+  constraints_rhs <- append(constraints_rhs, 1L - length(xjs))
+}
+
+stopifnot(length(constraints_list) == length(unlist(xi_by_bin)) + nb_yi)
+
+constrains_mat_bins <- dplyr::bind_rows(constraints_list) |>
+  as.matrix()
+
+constraints_mat <- rbind(constrains_mat_single,
+                        constrains_mat_bins)
+
+
+
+
+
+res_min3 <- lpSolve::lp(direction = "min",
+   objective.in = objective,
+   const.mat = constraints_mat,
+   const.dir = constraints_dirs,
+   const.rhs = constraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+res_max3 <- lpSolve::lp(direction = "max",
+   objective.in = objective,
+   const.mat = constraints_mat,
+   const.dir = constraints_dirs,
+   const.rhs = constraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+
+all.equal(res_min$objval,res_min3$objval)
+all.equal(res_min$solution[1:11],res_min3$solution[1:11])
+all.equal(res_max$objval,res_max3$objval)
+all.equal(res_max$solution[1:11],res_max3$solution[1:11])
+
+```
+
+
+
+
+### Alternative model
+
+Here we define $x_j$ as "bin $b_j$ contains an element" (not attempting to determine which element).
+
+We define the matrix $A_{ij} = 1$ if for the ith splice junction, jth gene might be involved. There might be multiple 1's in the ith row. The objective function to minimize is $C = x^t$, with conditions:
+$$
+Ax >=1
+$$
+and
+$$
+x \in \{0,1\}^m
+$$
+
+
+
+Let's implement it
+
+
+```{r}
+
+nb_bins <- elements |> unlist() |> unique() |> length()
+bins_names <- elements |> unlist() |> unique()
+nb_elements <- length(elements)
+
+objective <- rep(1, nb_bins)
+
+empty_row <- rep(0L, nb_bins) |> setNames(bins_names)
+constraints_mat <- vapply(elements,
+                       \(S_el){
+                         row <- empty_row
+                         row[S_el] <- 1L
+                         row
+                       },
+                       integer(nb_bins)) |>
+  t()
+
+constraints_dirs <- rep("=", nb_elements)
+constraints_rhs <- rep(1L, nb_elements)
+
+res_min4 <- lpSolve::lp(direction = "min",
+   objective.in = objective,
+   const.mat = constraints_mat,
+   const.dir = constraints_dirs,
+   const.rhs = constraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+
+res_max4 <- lpSolve::lp(direction = "max",
+   objective.in = objective,
+   const.mat = constraints_mat,
+   const.dir = constraints_dirs,
+   const.rhs = constraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+
+res_max5 <- lpSolve::lp(direction = "min",
+   objective.in = objective,
+   const.mat = (constraints_mat),
+   const.dir = rep("=", nb_elements),
+   const.rhs = rowSums(constraints_mat) - 1L,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+
+```
+
+
+## Mean of resample
+
+The other approach is to take the mean of the "naive" resampling. From the above, it seems we could always build a set of true locations that matches either the lower bound or upper bound, so there is no guarantee that the mean of the resampling converges towards the true number of non-empty bins in a general case.
+
+Looking at it in real data (as well as the small example data above), the resampling mean does converge to a value in the middle of the range.
+
+
+
+
+# Real data
+
+```{r}
+candidate_sjs <- readxl::read_xlsx("../data/export/240418_novel_junctions.xlsx")
+neighbors_per_sj <- candidate_sjs$neighbor_genes |>
+  strsplit(",")
+```
+
+
+We can start with the rough bounds.
+
+The upper bound is the minimum between number of elements, and number of bins that appear at least once:
+```{r}
+neighbors_per_sj |>
+  unlist() |>
+  unique() |>
+  length() |>
+  min(length(neighbors_per_sj))
+```
+
+The lower bound is the number of genes that are alone in a set:
+```{r}
+neighbors_per_sj[ sapply(neighbors_per_sj, length) == 1] |>
+  unlist() |>
+  unique() |>
+  length()
+```
+
+## Three assumptions
+
+The total number of possible combinations is `r sapply(neighbors_per_sj, length) |> prod() |> format(digits = 2)`. We can't sample them all.
+
+We can get a single number by adding an assumption. Minimality and maximality assumptions: we try to maximize or minimize the number of non-empty bins. Uniformity assumption: we randomly sample from the possible combinations, and estimate the number of non-empty bins. Note, all these assumptions are not true (e.g. the SJ are not independent), but give us bounds and average.
+
+
+
+## Minimality and Maximality
+
+
+Applying the previous code (from the toy example) to the full dataset.
+
+
+```{r}
+
+elements = neighbors_per_sj
+names(elements) <- as.character(seq_along(elements))
+
+nb_xi <- elements |> unlist() |> length()
+nb_yi <- elements |> unlist() |> unique() |> length()
+
+yi_names <- elements |> unlist() |> unique()
+xi_names <- character()
+for(i in seq_along(elements)){
+  xi_names <- append(xi_names,
+                     paste(names(elements)[[i]],
+                           elements[[i]],
+                           sep="-"))
+}
+
+
+stopifnot(length(xi_names) == nb_xi)
+
+stopifnot(length(yi_names) == nb_yi)
+
+
+objective <- c(
+  rep(0, nb_xi),
+  rep(1, nb_yi)
+)
+
+
+
+#~ simple constraints: each element once in a bin
+
+empty_row <- rep(0L, nb_yi) |> setNames(yi_names)
+elements_mat <- vapply(elements,
+                       \(S_el){
+                         row <- empty_row
+                         row[S_el] <- 1L
+                         row
+                       },
+                       integer(nb_yi))
+
+constrains_mat_single <- matrix(0L,
+                                nrow = length(elements),
+                                ncol = nb_xi + nb_yi,
+                                dimnames = list(NULL,
+                                                c(xi_names, yi_names)))
+
+for(i in seq_along(elements)){
+  cur_el_name <- names(elements)[[i]]
+  
+  cur_el_bins <- elements_mat[,cur_el_name]
+  cur_el_bins <- cur_el_bins[cur_el_bins > 0]
+  
+  names_to_fill <- paste(cur_el_name, names(cur_el_bins), sep = "-")
+  
+  names(cur_el_bins) <- names_to_fill
+  
+  constrains_mat_single[i,names_to_fill] <- cur_el_bins
+}
+
+constraints_dirs <- rep("=", length(elements))
+
+constraints_rhs <- rowSums(constrains_mat_single) - 1L
+
+
+
+
+#~ constraints for each yi
+# for i fixed:
+#    y_i - x_j < 0 for each j
+#    y_i - sum(x_j) > n-1
+
+xi_by_bin <- lapply(yi_names,
+       \(cur_bin){
+         elements_with_bin_pos <- sapply(elements, \(set) cur_bin %in% set)
+         elements_with_bin <- names(elements)[elements_with_bin_pos]
+         paste(elements_with_bin, cur_bin, sep = "-")
+       } ) |>
+  setNames(yi_names)
+
+
+constraints_list <- list()
+
+empty_row <- rep(0, nb_xi + nb_yi) |>
+  setNames(c(xi_names, yi_names))
+
+for(i in seq_len(nb_yi)){
+  cur_bin <- yi_names[[i]]
+  
+  xjs <- xi_by_bin[[cur_bin]]
+  
+  ###    y_i - x_j < 0 for each j
+  cons_bins_foreach <- lapply(xjs,
+         \(xj){
+           new_row <- empty_row
+           new_row[xj] <- -1
+           new_row[cur_bin] <- 1
+           new_row
+         })
+  
+  constraints_dirs <- append(constraints_dirs,
+                             rep("<", length(xjs)))
+  constraints_rhs <- append(constraints_rhs,
+                            rep(0, length(xjs)))
+  
+  
+  ###    y_i - sum(x_j) > n-1
+  cons_bins_sum <- empty_row
+  cons_bins_sum[cur_bin] <- 1
+  cons_bins_sum[xjs] <- -1
+  
+  
+  constraints_list <- constraints_list |>
+    append(cons_bins_foreach) |>
+    append(list(cons_bins_sum))
+  
+  
+  constraints_dirs <- append(constraints_dirs, ">")
+  
+  constraints_rhs <- append(constraints_rhs, 1L - length(xjs))
+}
+
+stopifnot(length(constraints_list) == length(unlist(xi_by_bin)) + nb_yi)
+
+constrains_mat_bins <- dplyr::bind_rows(constraints_list) |>
+  as.matrix()
+
+constraints_mat <- rbind(constrains_mat_single,
+                         constrains_mat_bins)
+
+
+
+
+
+res_min_real <- lpSolve::lp(direction = "min",
+   objective.in = objective,
+   const.mat = constraints_mat,
+   const.dir = constraints_dirs,
+   const.rhs = constraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+
+
+res_max_real <- lpSolve::lp(direction = "max",
+   objective.in = objective,
+   const.mat = constraints_mat,
+   const.dir = constraints_dirs,
+   const.rhs = constraints_rhs,
+   transpose.constraints = TRUE,
+   all.bin = TRUE)
+
+```
+
+
+Thus, by maximizing the number of empty bins, we get `r res_max_real$objval` empty bins, i.e. `r nb_yi- res_max_real$objval` non-empty bins, and by minimizing, we have `r res_min_real$objval` empty bins, i.e. `r nb_yi- res_min_real$objval` non-empty bins. The possible range of genes with novel SJs is thus $[1,353;1,368]$.
+
+
+
+
+
+
+## Uniformity
+
+By resampling, we can look at the actual bounds that are accessed by any sample:
+```{r}
+# avoid resampling the sets with single gene
+constants <- neighbors_per_sj[sapply(neighbors_per_sj, length) == 1]
+variables <- neighbors_per_sj[sapply(neighbors_per_sj, length) > 1]
+
+# speed up sampling
+sample_1 <- function(x){
+  x[.Internal(sample(length(x), 1, FALSE, NULL))]
+}
+
+set.seed(123)
+nb_genes <- replicate(1e6,{
+  sapply(variables,
+         \(x) sample_1(x)) |>
+    union(constants) |>
+    unique() |>
+    length()
+})
+
+hist(nb_genes)
+
+table(nb_genes)
+```
+
+Thus, with 1,000,000 resamples, we fully explore the possible range of $[1,353;1,368]$. Note, with  1000 resamples, we only explore a range of [1356-1366]. Under the uniformity assumption, we estimate an average of $1,361$ genes with novel SJs.
+
+
+
+# SessionInfo
+
+```{r}
+sessionInfo()
+```
+
